@@ -1,30 +1,90 @@
-const express = require('express')
-const app = express();  
-const port = 3000
-const path = require("path")
-const bodyParser = require('body-parser')
-app.use(express.urlencoded({extended : true}))
-var fileupload = require("express-fileupload");
-app.use(fileupload());
+const express = require("express");
+const app = express();
+const path = require("path");
+const { exec } = require("child_process");
+const outputFilePath = Date.now() + "output.pdf";
+const bodyParser = require("body-parser");
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+app.set("views", path.join(__dirname, "views"));
+app.set("view engine", "ejs");
+app.use(express.static("public"));
+var list = "";
+const fs = require("fs");
+const multer = require("multer");
+const imagesToPdf = require("images-to-pdf");
 
-app.set("views",path.join(__dirname,"views"))
-app.set("view engine","ejs")
-app.set('views', path.join(__dirname,'views'));
+var storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "public/uploads");
+  },
+  filename: function (req, file, cb) {
+    cb(
+      null,
+      file.fieldname + "-" + Date.now() + path.extname(file.originalname)
+    );
+  },
+});
 
+const imageFilter = function (req, file, cb) {
+  if (
+    file.mimetype == "image/png" ||
+    file.mimetype == "image/jpg" ||
+    file.mimetype == "image/jpeg"
+  ) {
+    cb(null, true);
+  } else {
+    cb(null, false);
+    return cb(new Error("Only .png, .jpg and .jpeg format allowed!"));
+  }
+};
 
-app.get("/",function(req,res){
-    res.render("index");
-})
+var upload = multer({ storage: storage, fileFilter: imageFilter });
 
-app.post('/xyz' , function(req,res){
-    console.log(`req.body = ${req.body}`);
-    console.log(req.files);
-    var path = req.files.images[0].path
-    console.log(path);
-    res.json(req.body);
-})
+const PORT = process.env.PORT || 3000;
 
-app.listen(port, () => {
-    console.log(`Example app listening at http://localhost:${port}`)
-  })
-  
+var dir = "public";
+var subDirectory = "public/uploads";
+
+if (!fs.existsSync(dir)) {
+  fs.mkdirSync(dir);
+
+  fs.mkdirSync(subDirectory);
+}
+
+app.get("/", (req, res) => {
+  res.render("index");
+});
+
+app.post("/merge", upload.array("files", 100), async (req, res) => {
+  list = "";
+  let pathList = [];
+  if (req.files) {
+    req.files.forEach((file) => {
+      pathList.push(file.path);
+      console.log(file.path);
+
+      list += `${file.path}`;
+      list += " ";
+    });
+
+    console.log(list);
+
+    await imagesToPdf(pathList, outputFilePath);
+    res.download(outputFilePath, (err) => {
+      if (err) throw err;
+
+      // delete the files which is stored
+
+      req.files.forEach((file) => {
+        fs.unlinkSync(file.path);
+      });
+
+      fs.unlinkSync(outputFilePath);
+    });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`App is listening on Port ${PORT}`);
+});
